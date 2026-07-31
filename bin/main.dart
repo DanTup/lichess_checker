@@ -2,43 +2,46 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:lichess_checker/config.dart';
 import 'package:lichess_checker/types.dart';
 
-final apiKey = Platform.environment['LICHESS_KEY'];
-
-const Map<String, List<(Variant, Color)>> desiredGames = {
-  // Add an entry for each opponents username and the kinds of games to play.
-  'dantup': [
-    (Variant.standard, .black),
-    (Variant.standard, .white),
-    (Variant.antichess, .random),
-    (Variant.atomic, .random),
-    (Variant.crazyhouse, .random),
-    (Variant.horde, .random),
-    (Variant.racingKings, .random),
-    (Variant.threeCheck, .random),
-    (Variant.kingOfTheHill, .random),
-    (Variant.chess960, .random),
-  ],
-};
-
 Future<void> main(List<String> arguments) async {
+  final configFile = File('config.json');
+  if (!configFile.existsSync()) {
+    stderr
+      ..writeln('config.json not found!')
+      ..writeln('')
+      ..writeln(
+        'Copy config.json.example to config.json and edit it to add your games.',
+      );
+    return;
+  }
+
+  final config = AppConfig(
+    jsonDecode(configFile.readAsStringSync()) as Map<String, Object?>,
+  );
+
+  final apiKey =
+      config.apiKey ?? Platform.environment['LICHESS_KEY'];
+
   if (apiKey == null) {
     stderr
-      ..writeln('The LICHESS_KEY environment variable is not set!')
+      ..writeln(
+        'No API key found! Set "apiKey" in config.json or the LICHESS_KEY environment variable.',
+      )
       ..writeln('')
       ..writeln(
         'Create a PAT at https://lichess.org/account/oauth/token/create with the following permissions:',
       )
       ..writeln('')
       ..writeln('- Read incoming challenges')
-      ..writeln('- Send, accept and reject challenges')
-      ..writeln('')
-      ..writeln('Then set it in the LICHESS_KEY env variable');
+      ..writeln('- Send, accept and reject challenges');
     return;
   }
 
-  final challenges = await getChallenges();
+  final desiredGames = config.games;
+
+  final challenges = await getChallenges(apiKey);
   final playerChallenges = <String, List<Challenge>>{};
   final playersWithOutboundChallenges = <String>{};
   for (var challenge in [
@@ -56,7 +59,7 @@ Future<void> main(List<String> arguments) async {
         .add(challenge);
   }
 
-  final games = await getGames();
+  final games = await getGames(apiKey);
   final playerGameType = <String, Map<Variant, List<Game>>>{};
   for (var game in games) {
     playerGameType
@@ -145,12 +148,12 @@ Future<void> main(List<String> arguments) async {
     if (!playersWithOutboundChallenges.contains(opponent)) {
       playersWithOutboundChallenges.add(opponent);
 
-      await sendChallenge(opponent, variant, color);
+      await sendChallenge(opponent, variant, color, apiKey);
     }
   }
 
   for (var challenge in challenges.inChallenges) {
-    await acceptChallenge(challenge);
+    await acceptChallenge(challenge, desiredGames, apiKey);
   }
 }
 
@@ -158,6 +161,7 @@ Future<void> sendChallenge(
   String opponent,
   Variant variant,
   Color color,
+  String apiKey,
 ) async {
   stdout.write(
     'Sending challenge to $opponent for $variant (${color.name})...',
@@ -175,7 +179,11 @@ Future<void> sendChallenge(
   print(' Done!');
 }
 
-Future<void> acceptChallenge(Challenge challenge) async {
+Future<void> acceptChallenge(
+  Challenge challenge,
+  Map<String, List<(Variant, Color)>> desiredGames,
+  String apiKey,
+) async {
   if (!desiredGames.containsKey(challenge.challenger.username)) {
     print('Ignoring challenge from ${challenge.challenger.username}');
     return;
@@ -204,19 +212,20 @@ bool colorsEqual(Color color1, Color color2) {
   return color1 == color2 || color1 == .random || color2 == .random;
 }
 
-Future<List<Game>> getGames() async {
+Future<List<Game>> getGames(String apiKey) async {
   var map = await fetch(
     Uri.parse('https://lichess.org/api/account/playing?nb=50'),
+    apiKey,
   );
   return NowPlaying(map).nowPlaying;
 }
 
-Future<Challenges> getChallenges() async {
-  var map = await fetch(Uri.parse('https://lichess.org/api/challenge'));
+Future<Challenges> getChallenges(String apiKey) async {
+  var map = await fetch(Uri.parse('https://lichess.org/api/challenge'), apiKey);
   return Challenges(map);
 }
 
-Future<Map<String, Object?>> fetch(Uri uri) async {
+Future<Map<String, Object?>> fetch(Uri uri, String apiKey) async {
   var response = await http.get(
     uri,
     headers: {'Authorization': 'Bearer $apiKey'},
