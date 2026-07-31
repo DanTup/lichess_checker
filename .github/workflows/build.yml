@@ -1,0 +1,37 @@
+name: Build
+
+on: [push]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: lichess_checker-linux
+            output_file: lichess_checker
+          - os: windows-latest
+            artifact_name: lichess_checker-windows
+            output_file: lichess_checker.exe
+          - os: macos-latest
+            artifact_name: lichess_checker-macos
+            output_file: lichess_checker
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Build native executable
+        run: dart compile exe bin/main.dart -o ${{ matrix.output_file }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.output_file }}
