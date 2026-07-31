@@ -6,6 +6,7 @@ environment:
   sdk: ^3.12.2
 
 dependencies:
+  args:
   http:
 
 dev_dependencies:
