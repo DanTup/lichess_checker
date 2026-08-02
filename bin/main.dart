@@ -44,32 +44,6 @@ Future<void> main(List<String> arguments) async {
   final random = Random();
 
   final challenges = await getChallenges(apiKey);
-  final playerChallenges = <String, List<Challenge>>{};
-  final playersWithOutboundChallenges = <String>{};
-  for (var challenge in [
-    ...challenges.inChallenges,
-    ...challenges.outChallenges,
-  ]) {
-    playersWithOutboundChallenges
-      ..add(challenge.challenger.username)
-      ..add(challenge.destUser.username);
-    playerChallenges
-        .putIfAbsent(challenge.challenger.username, () => [])
-        .add(challenge);
-    playerChallenges
-        .putIfAbsent(challenge.destUser.username, () => [])
-        .add(challenge);
-  }
-
-  final games = await getGames(apiKey);
-  final playerGameType = <String, Map<Variant, List<Game>>>{};
-  for (var game in games) {
-    playerGameType
-        .putIfAbsent(game.opponent.username, () => {})
-        .putIfAbsent(game.variant, () => [])
-        .add(game);
-  }
-
   if (challenges.inChallenges.isNotEmpty) {
     print('Incoming challenges:');
     for (var challenge in challenges.inChallenges) {
@@ -87,29 +61,23 @@ Future<void> main(List<String> arguments) async {
     print('');
   }
 
-  if (challenges.outChallenges.isNotEmpty) {
-    print('Outbound challenges:');
-    for (var challenge in challenges.outChallenges) {
-      print(
-        [
-          '',
-          challenge.challenger.username.padRight(15),
-          challenge.destUser.username.padRight(15),
-          ('${challenge.variant.displayName} (${challenge.color.name})')
-              .padRight(25),
-          challenge.url.padRight(50),
-        ].join('  |  '),
-      );
-    }
-    print('');
+  for (var challenge in challenges.inChallenges) {
+    await acceptChallenge(challenge, desiredGames, apiKey);
+  }
+
+  final games = await getGames(apiKey);
+  final playerGameType = <String, Map<Variant, List<Game>>>{};
+  for (var game in games) {
+    playerGameType
+        .putIfAbsent(game.opponent.username, () => {})
+        .putIfAbsent(game.variant, () => [])
+        .add(game);
   }
 
   print('Open Games:');
-  var missingVariants = <String, List<DesiredGame>>{};
+  var missingVariants = <String, List<(Variant, Color, bool)>>{};
   for (var MapEntry(key: opponent, value: variants) in desiredGames.entries) {
-    for (var desiredGame in variants) {
-      var variant = desiredGame.variant;
-      var color = desiredGame.color;
+    for (var (variant, color, priority) in variants) {
       var theseGames = playerGameType[opponent]?[variant] ?? [];
       for (var game in theseGames.where(matchesGameColor(color))) {
         print(
@@ -123,7 +91,11 @@ Future<void> main(List<String> arguments) async {
         );
       }
       if (!theseGames.any(matchesGameColor(color))) {
-        missingVariants.putIfAbsent(opponent, () => []).add(desiredGame);
+        missingVariants.putIfAbsent(opponent, () => []).add((
+          variant,
+          color,
+          priority,
+        ));
         print(
           [
             '',
@@ -141,8 +113,7 @@ Future<void> main(List<String> arguments) async {
   for (var MapEntry(key: opponent, value: missingGames)
       in missingVariants.entries) {
     var currentGamesCount =
-        (playerGameType[opponent]?.values.expand((games) => games).length ?? 0) +
-        (playerChallenges[opponent]?.length ?? 0);
+        (playerGameType[opponent]?.values.expand((games) => games).length ?? 0);
     var allowedGamesCount =
         config.maxGamesForOpponent(opponent) ?? desiredGames[opponent]!.length;
     var availableGameSlots = allowedGamesCount - currentGamesCount;
@@ -150,23 +121,9 @@ Future<void> main(List<String> arguments) async {
       continue;
     }
 
-    var gamesWithoutChallenge = missingGames.where((desiredGame) {
-      return !(playerChallenges[opponent]?.any(
-            (challenge) =>
-                challenge.variant == desiredGame.variant &&
-                colorsEqual(desiredGame.color, challenge.color),
-          ) ??
-          false);
-    }).toList();
-    if (gamesWithoutChallenge.isEmpty) {
-      continue;
-    }
-
-    var priorityGames =
-        gamesWithoutChallenge.where((game) => game.priority).toList();
+    var priorityGames = missingGames.where((game) => game.$3).toList();
     var randomGames =
-        gamesWithoutChallenge.where((game) => !game.priority).toList()
-          ..shuffle(random);
+        missingGames.where((game) => !game.$3).toList()..shuffle(random);
     var gamesToChallenge = [
       ...priorityGames,
       ...randomGames,
@@ -175,21 +132,13 @@ Future<void> main(List<String> arguments) async {
       continue;
     }
 
-    // Can we send a challenge?
-    if (!playersWithOutboundChallenges.contains(opponent)) {
-      playersWithOutboundChallenges.add(opponent);
-      var gameToChallenge = gamesToChallenge.first;
-      await sendChallenge(
-        opponent,
-        gameToChallenge.variant,
-        gameToChallenge.color,
-        apiKey,
-      );
-    }
-  }
-
-  for (var challenge in challenges.inChallenges) {
-    await acceptChallenge(challenge, desiredGames, apiKey);
+    var gameToChallenge = gamesToChallenge.first;
+    await sendChallenge(
+      opponent,
+      gameToChallenge.$1,
+      gameToChallenge.$2,
+      apiKey,
+    );
   }
 }
 
@@ -217,7 +166,7 @@ Future<void> sendChallenge(
 
 Future<void> acceptChallenge(
   Challenge challenge,
-  Map<String, List<DesiredGame>> desiredGames,
+  Map<String, List<(Variant variant, Color color, bool priority)>> desiredGames,
   String apiKey,
 ) async {
   if (!desiredGames.containsKey(challenge.challenger.username)) {

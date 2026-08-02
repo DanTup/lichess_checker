@@ -13,20 +13,20 @@ extension type AppConfig(Map<String, Object?> _map) {
     return null;
   }
 
-  Map<String, List<DesiredGame>> get games {
+  Map<String, List<(Variant variant, Color color, bool priority)>> get games {
     var gamesMap = _map['games'] as Map<String, Object?>;
     return {
       for (var MapEntry(key: opponent, value: gamesList) in gamesMap.entries)
         opponent: (gamesList as List)
             .cast<Map<String, Object?>>()
-            .map(DesiredGame.new)
+            .map(
+              (game) => (
+                Variant.parse(game['variant'] as String),
+                Color.parse(game['color'] as String),
+                game['priority'] as bool? ?? false,
+              ),
+            )
             .toList(),
     };
   }
-}
-
-extension type DesiredGame(Map<String, Object?> _map) {
-  Variant get variant => Variant.parse(_map['variant'] as String);
-  Color get color => Color.parse(_map['color'] as String);
-  bool get priority => _map['priority'] as bool? ?? false;
 }
