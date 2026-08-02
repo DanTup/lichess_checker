@@ -1,16 +1,19 @@
 {
   "games": {
-    "dantup": [
-      { "variant": "standard", "color": "black" },
-      { "variant": "standard", "color": "white" },
-      { "variant": "antichess", "color": "random" },
-      { "variant": "atomic", "color": "random" },
-      { "variant": "crazyhouse", "color": "random" },
-      { "variant": "horde", "color": "random" },
-      { "variant": "racingKings", "color": "random" },
-      { "variant": "threeCheck", "color": "random" },
-      { "variant": "kingOfTheHill", "color": "random" },
-      { "variant": "chess960", "color": "random" }
-    ]
+    "dantup": {
+      "maxGames": 5,
+      "variants": [
+        { "variant": "standard", "color": "black", "priority": true },
+        { "variant": "standard", "color": "white", "priority": true },
+        { "variant": "antichess", "color": "random" },
+        { "variant": "atomic", "color": "random" },
+        { "variant": "crazyhouse", "color": "random" },
+        { "variant": "horde", "color": "random" },
+        { "variant": "racingKings", "color": "random" },
+        { "variant": "threeCheck", "color": "random" },
+        { "variant": "kingOfTheHill", "color": "random" },
+        { "variant": "chess960", "color": "random" }
+      ]
+    }
   }
 }

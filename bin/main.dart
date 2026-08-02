@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 import 'package:lichess_checker/config.dart';
 import 'package:lichess_checker/types.dart';
+
+final random = Random();
 
 Future<void> main(List<String> arguments) async {
   final configFile = File('config.json');
@@ -21,9 +24,7 @@ Future<void> main(List<String> arguments) async {
     jsonDecode(configFile.readAsStringSync()) as Map<String, Object?>,
   );
 
-  final apiKey =
-      config.apiKey ?? Platform.environment['LICHESS_KEY'];
-
+  final apiKey = config.apiKey ?? Platform.environment['LICHESS_KEY'];
   if (apiKey == null) {
     stderr
       ..writeln(
@@ -39,26 +40,20 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
-  final desiredGames = config.games;
-
+  // First, accept any inbound challenges. That way we'll have the existing
+  // games to exclude from potential new challenges (and the correct count).
   final challenges = await getChallenges(apiKey);
-  final playerChallenges = <String, List<Challenge>>{};
-  final playersWithOutboundChallenges = <String>{};
-  for (var challenge in [
-    ...challenges.inChallenges,
-    ...challenges.outChallenges,
-  ]) {
-    playersWithOutboundChallenges
-      ..add(challenge.challenger.username)
-      ..add(challenge.destUser.username);
-    playerChallenges
-        .putIfAbsent(challenge.challenger.username, () => [])
-        .add(challenge);
-    playerChallenges
-        .putIfAbsent(challenge.destUser.username, () => [])
-        .add(challenge);
+  final allowedOpponents = config.games.keys.toSet();
+  for (var challenge in challenges.inChallenges) {
+    await acceptChallenge(challenge, allowedOpponents, apiKey);
   }
 
+  // Track players with outbound challenges, as we can't raise any more.
+  final playersWithOutboundChallenges = challenges.outChallenges
+      .map((challenge) => challenge.destUser.username)
+      .toSet();
+
+  final desiredGames = config.games;
   final games = await getGames(apiKey);
   final playerGameType = <String, Map<Variant, List<Game>>>{};
   for (var game in games) {
@@ -68,46 +63,22 @@ Future<void> main(List<String> arguments) async {
         .add(game);
   }
 
-  if (challenges.inChallenges.isNotEmpty) {
-    print('Incoming challenges:');
-    for (var challenge in challenges.inChallenges) {
-      print(
-        [
-          '',
-          challenge.challenger.username.padRight(15),
-          challenge.destUser.username.padRight(15),
-          ('${challenge.variant.displayName} (${challenge.color.name})')
-              .padRight(25),
-          challenge.url.padRight(50),
-        ].join('  |  '),
-      );
-    }
-    print('');
-  }
-
-  if (challenges.outChallenges.isNotEmpty) {
-    print('Outbound challenges:');
-    for (var challenge in challenges.outChallenges) {
-      print(
-        [
-          '',
-          challenge.challenger.username.padRight(15),
-          challenge.destUser.username.padRight(15),
-          ('${challenge.variant.displayName} (${challenge.color.name})')
-              .padRight(25),
-          challenge.url.padRight(50),
-        ].join('  |  '),
-      );
-    }
-    print('');
-  }
-
   print('Open Games:');
-  var missingVariants = <(String, Variant, Color)>[];
-  for (var MapEntry(key: opponent, value: variants) in desiredGames.entries) {
-    for (var (variant, color) in variants) {
-      var theseGames = playerGameType[opponent]?[variant] ?? [];
-      for (var game in theseGames.where(matchesGameColor(color))) {
+  var matchedVariants = <DesiredGame>[];
+  var missingVariants = <DesiredGame>[];
+  for (var MapEntry(key: opponent, value: opponentConfig)
+      in desiredGames.entries) {
+    for (var game in opponentConfig.variants) {
+      var DesiredGame(:color, :variant) = game;
+      var theseGames =
+          playerGameType[opponent]?[variant]
+              ?.where(matchesGameColor(color))
+              .toList() ??
+          [];
+      // Even though this is one desired game, we might have multiple existing
+      // games that match, for ex. if we accidentally rematched on one with
+      // an existing game/challenge.
+      for (var game in theseGames) {
         print(
           [
             '',
@@ -118,8 +89,8 @@ Future<void> main(List<String> arguments) async {
           ].join('  |  '),
         );
       }
-      if (!theseGames.any(matchesGameColor(color))) {
-        missingVariants.add((opponent, variant, color));
+      if (theseGames.isEmpty) {
+        missingVariants.add(game);
         print(
           [
             '',
@@ -129,43 +100,33 @@ Future<void> main(List<String> arguments) async {
             ''.padRight(50),
           ].join('  |  '),
         );
+      } else {
+        matchedVariants.add(game);
       }
     }
-  }
-  print('');
 
-  for (var (opponent, variant, color) in missingVariants) {
-    // Check there is not already a challenge for this.
-    if (playerChallenges[opponent]?.any(
-          (challenge) =>
-              challenge.variant == variant &&
-              colorsEqual(color, challenge.color),
-        ) ??
-        false) {
-      continue;
+    // If we have missing games, not an existing outbound challenge, and have
+    // not hit max games for this player, we should send the next challenge.
+    if (missingVariants.isNotEmpty &&
+        !playersWithOutboundChallenges.contains(opponent) &&
+        matchedVariants.length < opponentConfig.maxGames) {
+      missingVariants.shuffle(random);
+
+      var gameToChallenge = missingVariants.firstWhere(
+        (game) => game.priority,
+        orElse: () => missingVariants.first,
+      );
+      await sendChallenge(opponent, gameToChallenge, apiKey);
     }
-    // Otherwise, can we send a challenge?
-    if (!playersWithOutboundChallenges.contains(opponent)) {
-      playersWithOutboundChallenges.add(opponent);
-
-      await sendChallenge(opponent, variant, color, apiKey);
-    }
-  }
-
-  for (var challenge in challenges.inChallenges) {
-    await acceptChallenge(challenge, desiredGames, apiKey);
   }
 }
 
 Future<void> sendChallenge(
   String opponent,
-  Variant variant,
-  Color color,
+  DesiredGame game,
   String apiKey,
 ) async {
-  stdout.write(
-    'Sending challenge to $opponent for $variant (${color.name})...',
-  );
+  var DesiredGame(:color, :variant) = game;
   var response = await http.post(
     Uri.parse('https://lichess.org/api/challenge/$opponent'),
     headers: {
@@ -176,15 +137,17 @@ Future<void> sendChallenge(
     body: {'rated': 'false', 'color': color.name, 'variant': variant.name},
   );
   if (response.statusCode != 200) throw response.body;
-  print(' Done!');
+  stdout.write(
+    'Sent challenge to $opponent for ${variant.displayName} (${color.name})...',
+  );
 }
 
 Future<void> acceptChallenge(
   Challenge challenge,
-  Map<String, List<(Variant, Color)>> desiredGames,
+  Set<String> allowedOpponents,
   String apiKey,
 ) async {
-  if (!desiredGames.containsKey(challenge.challenger.username)) {
+  if (!allowedOpponents.contains(challenge.challenger.username)) {
     print('Ignoring challenge from ${challenge.challenger.username}');
     return;
   }
