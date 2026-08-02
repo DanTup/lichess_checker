@@ -1,8 +1,9 @@
 {
+  "maxGames": 5,
   "games": {
     "dantup": [
-      { "variant": "standard", "color": "black" },
-      { "variant": "standard", "color": "white" },
+      { "variant": "standard", "color": "black", "priority": true },
+      { "variant": "standard", "color": "white", "priority": true },
       { "variant": "antichess", "color": "random" },
       { "variant": "atomic", "color": "random" },
       { "variant": "crazyhouse", "color": "random" },

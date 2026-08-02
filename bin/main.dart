@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 import 'package:lichess_checker/config.dart';
@@ -40,6 +41,8 @@ Future<void> main(List<String> arguments) async {
   }
 
   final desiredGames = config.games;
+  final maxGames = config.maxGames;
+  final random = Random();
 
   final challenges = await getChallenges(apiKey);
   final playerChallenges = <String, List<Challenge>>{};
@@ -103,9 +106,11 @@ Future<void> main(List<String> arguments) async {
   }
 
   print('Open Games:');
-  var missingVariants = <(String, Variant, Color)>[];
+  var missingVariants = <String, List<DesiredGame>>{};
   for (var MapEntry(key: opponent, value: variants) in desiredGames.entries) {
-    for (var (variant, color) in variants) {
+    for (var desiredGame in variants) {
+      var variant = desiredGame.variant;
+      var color = desiredGame.color;
       var theseGames = playerGameType[opponent]?[variant] ?? [];
       for (var game in theseGames.where(matchesGameColor(color))) {
         print(
@@ -119,7 +124,7 @@ Future<void> main(List<String> arguments) async {
         );
       }
       if (!theseGames.any(matchesGameColor(color))) {
-        missingVariants.add((opponent, variant, color));
+        missingVariants.putIfAbsent(opponent, () => []).add(desiredGame);
         print(
           [
             '',
@@ -134,21 +139,52 @@ Future<void> main(List<String> arguments) async {
   }
   print('');
 
-  for (var (opponent, variant, color) in missingVariants) {
-    // Check there is not already a challenge for this.
-    if (playerChallenges[opponent]?.any(
-          (challenge) =>
-              challenge.variant == variant &&
-              colorsEqual(color, challenge.color),
-        ) ??
-        false) {
+  for (var MapEntry(key: opponent, value: missingGames)
+      in missingVariants.entries) {
+    var currentGamesCount =
+        (playerGameType[opponent]?.values.expand((games) => games).length ?? 0) +
+        (playerChallenges[opponent]?.length ?? 0);
+    var allowedGamesCount = maxGames ?? desiredGames[opponent]!.length;
+    var availableGameSlots = allowedGamesCount - currentGamesCount;
+    if (availableGameSlots <= 0) {
       continue;
     }
-    // Otherwise, can we send a challenge?
+
+    var gamesWithoutChallenge = missingGames.where((desiredGame) {
+      return !(playerChallenges[opponent]?.any(
+            (challenge) =>
+                challenge.variant == desiredGame.variant &&
+                colorsEqual(desiredGame.color, challenge.color),
+          ) ??
+          false);
+    }).toList();
+    if (gamesWithoutChallenge.isEmpty) {
+      continue;
+    }
+
+    var priorityGames =
+        gamesWithoutChallenge.where((game) => game.priority).toList();
+    var randomGames =
+        gamesWithoutChallenge.where((game) => !game.priority).toList()
+          ..shuffle(random);
+    var gamesToChallenge = [
+      ...priorityGames,
+      ...randomGames,
+    ].take(availableGameSlots).toList();
+    if (gamesToChallenge.isEmpty) {
+      continue;
+    }
+
+    // Can we send a challenge?
     if (!playersWithOutboundChallenges.contains(opponent)) {
       playersWithOutboundChallenges.add(opponent);
-
-      await sendChallenge(opponent, variant, color, apiKey);
+      var gameToChallenge = gamesToChallenge.first;
+      await sendChallenge(
+        opponent,
+        gameToChallenge.variant,
+        gameToChallenge.color,
+        apiKey,
+      );
     }
   }
 
@@ -181,7 +217,7 @@ Future<void> sendChallenge(
 
 Future<void> acceptChallenge(
   Challenge challenge,
-  Map<String, List<(Variant, Color)>> desiredGames,
+  Map<String, List<DesiredGame>> desiredGames,
   String apiKey,
 ) async {
   if (!desiredGames.containsKey(challenge.challenger.username)) {
