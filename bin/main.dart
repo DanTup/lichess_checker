@@ -75,9 +75,11 @@ Future<void> main(List<String> arguments) async {
   }
 
   print('Open Games:');
-  var missingVariants = <String, List<(Variant, Color, bool)>>{};
+  var missingVariants = <String, List<DesiredGame>>{};
   for (var MapEntry(key: opponent, value: variants) in desiredGames.entries) {
-    for (var (variant, color, priority) in variants) {
+    for (var desiredGame in variants) {
+      var variant = desiredGame.variant;
+      var color = desiredGame.color;
       var theseGames = playerGameType[opponent]?[variant] ?? [];
       for (var game in theseGames.where(matchesGameColor(color))) {
         print(
@@ -91,11 +93,7 @@ Future<void> main(List<String> arguments) async {
         );
       }
       if (!theseGames.any(matchesGameColor(color))) {
-        missingVariants.putIfAbsent(opponent, () => []).add((
-          variant,
-          color,
-          priority,
-        ));
+        missingVariants.putIfAbsent(opponent, () => []).add(desiredGame);
         print(
           [
             '',
@@ -121,9 +119,9 @@ Future<void> main(List<String> arguments) async {
       continue;
     }
 
-    var priorityGames = missingGames.where((game) => game.$3).toList();
+    var priorityGames = missingGames.where((game) => game.priority).toList();
     var randomGames =
-        missingGames.where((game) => !game.$3).toList()..shuffle(random);
+        missingGames.where((game) => !game.priority).toList()..shuffle(random);
     var gamesToChallenge = [
       ...priorityGames,
       ...randomGames,
@@ -135,8 +133,8 @@ Future<void> main(List<String> arguments) async {
     var gameToChallenge = gamesToChallenge.first;
     await sendChallenge(
       opponent,
-      gameToChallenge.$1,
-      gameToChallenge.$2,
+      gameToChallenge.variant,
+      gameToChallenge.color,
       apiKey,
     );
   }
@@ -166,7 +164,7 @@ Future<void> sendChallenge(
 
 Future<void> acceptChallenge(
   Challenge challenge,
-  Map<String, List<(Variant variant, Color color, bool priority)>> desiredGames,
+  Map<String, List<DesiredGame>> desiredGames,
   String apiKey,
 ) async {
   if (!desiredGames.containsKey(challenge.challenger.username)) {
