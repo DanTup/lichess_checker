@@ -1,5 +1,7 @@
 {
-  "maxGames": 5,
+  "maxGames": {
+    "dantup": 5
+  },
   "games": {
     "dantup": [
       { "variant": "standard", "color": "black", "priority": true },

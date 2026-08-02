@@ -41,7 +41,6 @@ Future<void> main(List<String> arguments) async {
   }
 
   final desiredGames = config.games;
-  final maxGames = config.maxGames;
   final random = Random();
 
   final challenges = await getChallenges(apiKey);
@@ -144,7 +143,8 @@ Future<void> main(List<String> arguments) async {
     var currentGamesCount =
         (playerGameType[opponent]?.values.expand((games) => games).length ?? 0) +
         (playerChallenges[opponent]?.length ?? 0);
-    var allowedGamesCount = maxGames ?? desiredGames[opponent]!.length;
+    var allowedGamesCount =
+        config.maxGamesForOpponent(opponent) ?? desiredGames[opponent]!.length;
     var availableGameSlots = allowedGamesCount - currentGamesCount;
     if (availableGameSlots <= 0) {
       continue;

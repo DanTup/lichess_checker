@@ -2,7 +2,16 @@ import 'package:lichess_checker/types.dart';
 
 extension type AppConfig(Map<String, Object?> _map) {
   String? get apiKey => _map['apiKey'] as String?;
-  int? get maxGames => _map['maxGames'] as int?;
+  int? maxGamesForOpponent(String opponent) {
+    var maxGames = _map['maxGames'];
+    if (maxGames is int) {
+      return maxGames;
+    }
+    if (maxGames is Map<String, Object?>) {
+      return maxGames[opponent] as int?;
+    }
+    return null;
+  }
 
   Map<String, List<DesiredGame>> get games {
     var gamesMap = _map['games'] as Map<String, Object?>;
