@@ -64,10 +64,10 @@ Future<void> main(List<String> arguments) async {
   }
 
   print('Open Games:');
-  var matchedVariants = <DesiredGame>[];
-  var missingVariants = <DesiredGame>[];
   for (var MapEntry(key: opponent, value: opponentConfig)
       in desiredGames.entries) {
+    var matchedVariants = <DesiredGame>[];
+    var missingVariants = <DesiredGame>[];
     for (var game in opponentConfig.variants) {
       var DesiredGame(:color, :variant) = game;
       var theseGames =
